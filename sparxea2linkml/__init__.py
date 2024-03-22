@@ -1,88 +1,145 @@
+import os
 import sqlite3
-from pprint import pprint
-from textwrap import dedent
-from itertools import groupby, islice, tee
+import textwrap
+from itertools import groupby
 from operator import itemgetter
+from collections.abc import Iterable, Iterator
+from pprint import pprint
 
-from linkml.utils.schema_builder import SchemaBuilder
-from linkml_runtime.utils.formatutils import underscore, uncamelcase, camelcase
 from linkml_runtime.utils.schema_as_dict import schema_as_yaml_dump
-from linkml_runtime.linkml_model import SchemaDefinition, ClassDefinition, SlotDefinition, EnumDefinition, PermissibleValue
+from linkml_runtime.utils.formatutils import uncamelcase, underscore
+from linkml_runtime import linkml_model
+
+from sparxea2linkml import ea_model
 
 
-def generate_linkml_schema(rows):
-    schema_builder = SchemaBuilder(id="http://w3id.org/cim", name="cim-package")\
-        .add_defaults()\
-        .add_prefix("cim", "http:/iec.ch/TC57/")
+YAMLFilePath = os.PathLike | str
 
-    for _, obj in groupby(rows, itemgetter("object_id")):
-        obj = list(obj)
-        obj_name = obj[0]["class_name"]
-        match obj[0]["class_stereotype"]:
+
+def read_uml_classes(conn: sqlite3.Connection) -> sqlite3.Cursor:
+    cur = conn.cursor()
+
+    query = textwrap.dedent(
+        """
+        select
+            class.Object_ID,
+            class.Name,
+            class.Package_ID,
+            class.Note,
+            class.Stereotype,
+            attribute.ID,
+            attribute.Name,
+            attribute.LowerBound,
+            attribute.UpperBound,
+            attribute.Notes,
+            attribute.Stereotype
+        from t_object as class
+
+        left join t_attribute as attribute
+        on attribute.Object_ID = class.Object_ID
+
+        where class.Object_Type == "Class"
+
+        order by class.Object_ID, attribute.ID
+        """
+    )
+    uml_class_rows = cur.execute(query)
+
+    return uml_class_rows
+
+
+def parse_uml_classes(
+    uml_class_rows: Iterable[sqlite3.Row],
+) -> Iterator[tuple[ea_model.ObjectID, ea_model.UMLClass]]:
+    for object_id, rows in groupby(uml_class_rows, itemgetter(0)):
+        rows = list(uml_class_rows)
+
+        if not rows:
+            return
+
+        uml_class = ea_model.UMLClass(
+            id=object_id,
+            name=rows[0][1],
+            note=rows[0][2],
+            package_id=rows[0][3],
+            attributes={
+                row[5]: ea_model.UMLAttribute(
+                    id=row[5],
+                    name=row[6],
+                    note=row[7],
+                    lower_bound=row[8],
+                    upper_bound=row[9],
+                    stereotype=row[10],
+                )
+                for row in rows
+            },
+            stereotype=rows[0][4],
+        )
+
+        yield object_id, uml_class
+
+
+def generate_uri(name: str) -> str:
+    return f"https://cim.org/{name}/"
+
+
+def build_schema(
+    uml_classes: Iterator[tuple[ea_model.ObjectID, ea_model.UMLClass]]
+) -> linkml_model.SchemaDefinition:
+    schema = linkml_model.SchemaDefinition(
+        id="http://w3id.org/cim",
+        name="cim",
+        title="CIM",
+        prefixes={"cim": "https://cim.ucaiug.io/ns#", "linkml": "https://w3id.org/linkml/"},
+        default_prefix="cim",
+    )
+
+    for _, uml_class in uml_classes:
+        # obj = list(obj)
+        # obj_name = obj[0]["class_name"]
+        print(uml_class.id)
+        match uml_class.stereotype:
             case "enumeration":
-                schema_builder.add_enum(
-                    EnumDefinition(name=obj_name,
-                                   #enum_uri=f"cim:{obj_name}",
-                                   permissible_values={val_name: PermissibleValue(
-                                                           text=val_name,
-                                                           #meaning=f"cim:{obj_name}.{val_name}")
-                                                           meaning="cim:moedertje")
-                                                       for row in obj if (val_name := row["attr_name"])}),
-                    replace_if_present=True)
+                schema.enums[uml_class.name] = linkml_model.EnumDefinition(
+                    name=uml_class.name,
+                    enum_uri=generate_uri(uml_class.name),
+                    permissible_values={
+                        attr.name: linkml_model.PermissibleValue(
+                            text=attr.name, meaning=generate_uri(attr.name)
+                        )
+                        for attr in uml_class.attributes.values()
+                    },
+                )
             case _:
-                schema_builder.add_class(
-                    ClassDefinition(name=obj_name,
-                                    #class_uri=f"cim:{obj_name}",
-                                    class_uri="cim:Jemoederclass",
-                                    attributes={underscore(uncamelcase(attr_name)): SlotDefinition(
-                                                    name=underscore(uncamelcase(attr_name)),
-                                                    #slot_uri=f"cim:{obj_name}.{attr_name}")
-                                                    slot_uri="cim:aa.aaaaaaaa")
-                                                for row in obj if (attr_name := row["attr_name"])}),
-                    replace_if_present=True)
-                
+                schema.classes[uml_class.name] = linkml_model.ClassDefinition(
+                    name=uml_class.name,
+                    class_uri=generate_uri(uml_class.name),
+                    attributes={
+                        underscore(uncamelcase(attr.name)): linkml_model.SlotDefinition(
+                            name=underscore(uncamelcase(attr.name)),
+                            slot_uri=generate_uri(attr.name),
+                        )
+                        for attr in uml_class.attributes.values()
+                    },
+                )
 
-    return schema_builder.schema
+    return schema
 
 
-def write_schema(schema, path):
-    with open(path, "w") as f:
+def write_schema(schema: linkml_model.SchemaDefinition, output: YAMLFilePath):
+    with open(output, "w") as f:
         f.write(schema_as_yaml_dump(schema))
 
 
-def get_ea_objects(conn):
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
+def generate_schema(cim_db: ea_model.QEAProjectFile) -> None:
+    conn = sqlite3.connect(cim_db)
+    uml_class_rows = read_uml_classes(conn)
+    uml_classes = parse_uml_classes(uml_class_rows)
+    schema = build_schema(uml_classes)
+    write_schema(schema, "out.yml")
 
-    return cur.execute(dedent("""
-        select
-            c.Object_ID as object_id,
-            a.ID as attribute_id,
-            c.Name as class_name,
-            c.Note as class_note,
-            c.Package_ID as class_package_id,
-            c.Stereotype as class_stereotype,
-            a.Name as attr_name,
-            a.Notes as attr_note,
-            a.Stereotype as attr_stereotype,
-            a.LowerBound as attr_lower_bound,
-            a.UpperBound as attr_upper_bound
-        from t_object as c
-
-        left join t_attribute as a
-        on a.Object_ID = c.Object_ID
-
-        where c.Object_Type == "Class"
-
-        order by c.Object_ID, a.ID
-    """))
-    
 
 if __name__ == "__main__":
-    db = "data/iec61970cim17v40_iec61968cim13v13b_iec62325cim03v17b_CIM100.1.1.1.qea"
-    conn = sqlite3.connect(db)
-    ea_objects = get_ea_objects(conn)
-    schema = generate_linkml_schema(ea_objects)
-    write_schema(schema, "out.yml")
-    
-    
+    generate_schema(
+        cim_db="data/iec61970cim17v40_iec61968cim13v13b_iec62325cim03v17b_CIM100.1.1.1.qea"
+    )

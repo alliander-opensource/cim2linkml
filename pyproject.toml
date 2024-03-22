@@ -7,9 +7,15 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-linkml = "^1.7.5"
 linkml-runtime = "^1.7.2"
 
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.3.4"
+pyright = "^1.1.355"
+
+[tool.black]
+line-length = 79
 
 [build-system]
 requires = ["poetry-core"]
