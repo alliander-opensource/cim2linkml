@@ -52,7 +52,7 @@ def parse_uml_classes(
     uml_class_rows: Iterable[sqlite3.Row],
 ) -> Iterator[tuple[ea_model.ObjectID, ea_model.UMLClass]]:
     for object_id, rows in groupby(uml_class_rows, itemgetter(0)):
-        rows = list(uml_class_rows)
+        rows = list(rows)
 
         if not rows:
             return
@@ -95,9 +95,9 @@ def build_schema(
     )
 
     for _, uml_class in uml_classes:
+        pprint(uml_class)
         # obj = list(obj)
         # obj_name = obj[0]["class_name"]
-        print(uml_class.id)
         match uml_class.stereotype:
             case "enumeration":
                 schema.enums[uml_class.name] = linkml_model.EnumDefinition(
@@ -108,6 +108,7 @@ def build_schema(
                             text=attr.name, meaning=generate_uri(attr.name)
                         )
                         for attr in uml_class.attributes.values()
+                        if attr.id is not None  # Skip if no attributes.
                     },
                 )
             case _:
@@ -120,6 +121,7 @@ def build_schema(
                             slot_uri=generate_uri(attr.name),
                         )
                         for attr in uml_class.attributes.values()
+                        if attr.id is not None  # Skip if no attributes.
                     },
                 )
 
@@ -136,7 +138,7 @@ def generate_schema(cim_db: ea_model.QEAProjectFile) -> None:
     uml_class_rows = read_uml_classes(conn)
     uml_classes = parse_uml_classes(uml_class_rows)
     schema = build_schema(uml_classes)
-    write_schema(schema, "out.yml")
+    # write_schema(schema, "out.yml")
 
 
 if __name__ == "__main__":
