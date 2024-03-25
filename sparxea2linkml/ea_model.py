@@ -1,11 +1,51 @@
+import math
 import os
+import sys
 from dataclasses import dataclass
-from typing import Iterable
+from enum import Enum, auto
+from typing import NewType
 
 QEAProjectFile = os.PathLike | str
 ObjectID = int
 UMLClassName = str
 UMLAttributeName = str
+
+MANY = sys.maxsize
+UMLCardinalityValue = int
+UMLCardinality = tuple[UMLCardinalityValue, UMLCardinalityValue]
+
+
+class UMLRelationType(Enum):
+    ABSTRACTION = auto()
+    AGGREGATION = auto()
+    ASSEMBLY = auto()
+    ASSOCIATION = auto()
+    COLLABORATION = auto()
+    COMMUNICATIONPATH = auto()
+    CONNECTOR = auto()
+    CONTROLFLOW = auto()
+    DELEGATE = auto()
+    DEPENDENCY = auto()
+    DEPLOYMENT = auto()
+    ERLINK = auto()
+    EXTENSION = auto()
+    GENERALIZATION = auto()
+    INFORMATIONFLOW = auto()
+    INSTANTIATION = auto()
+    INTERRUPTFLOW = auto()
+    MANIFEST = auto()
+    NESTING = auto()
+    NOTELINK = auto()
+    OBJECTFLOW = auto()
+    PACKAGE = auto()
+    PROTOCOLCONFORMANCE = auto()
+    PROTOCOLTRANSITION = auto()
+    REALISATION = auto()
+    SEQUENCE = auto()
+    STATEFLOW = auto()
+    SUBSTITUTION = auto()
+    USAGE = auto()
+    USECASE = auto()
 
 
 @dataclass
@@ -14,8 +54,22 @@ class UMLAttribute:
     name: UMLAttributeName
     lower_bound: int
     upper_bound: int
+    type: str
     note: str | None
     stereotype: str | None
+
+
+@dataclass
+class UMLRelation:
+    connector_type: UMLRelationType
+    start_object_id: ObjectID
+    source_card: UMLCardinality | None
+    source_role: str | None
+    source_role_note: str | None
+    end_object_id: ObjectID
+    dest_card: UMLCardinality | None
+    dest_role: str | None
+    dest_role_note: str | None
 
 
 @dataclass
