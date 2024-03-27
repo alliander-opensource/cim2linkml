@@ -5,12 +5,11 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import NewType
 
-QEAProjectFile = os.PathLike | str
+AttributeID = int
 ObjectID = int
 UMLClassName = str
 UMLAttributeName = str
 
-MANY = sys.maxsize
 UMLCardinalityValue = int
 UMLCardinality = tuple[UMLCardinalityValue, UMLCardinalityValue]
 
@@ -78,5 +77,26 @@ class UMLClass:
     name: UMLClassName
     package_id: int
     attributes: dict[UMLAttributeName, UMLAttribute]
+    note: str | None
+    stereotype: str | None
+
+
+@dataclass
+class UMLClass2:
+    id: ObjectID
+    name: UMLClassName
+    package_id: int
+    stereotype: str | None
+    note: str | None
+    attributes: dict[UMLAttributeName, UMLAttribute]
+
+
+@dataclass
+class UMLAttribute2:
+    id: AttributeID
+    name: UMLAttributeName
+    lower_bound: int
+    upper_bound: int
+    type: str
     note: str | None
     stereotype: str | None
